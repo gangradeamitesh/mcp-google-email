@@ -1,27 +1,30 @@
 from dataclasses import dataclass
-from typing import Any, Optional, AsyncIterator
+from typing import Any, Optional, AsyncIterator, List, Dict, Union
 from contextlib import asynccontextmanager
 import os
 import json
 import base64
+from datetime import datetime
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
 from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 import google.auth
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from typing import List, Dict, Any, Optional, Union
+
 from mcp.server.fastmcp import FastMCP, Context
-from datetime import datetime
 
 
 # Constants
-SCOPES = ['https://www.googleapis.com/auth/gmail.modify',
-          'https://www.googleapis.com/auth/gmail.compose',
-          'https://www.googleapis.com/auth/gmail.send',
-          'https://www.googleapis.com/auth/gmail.readonly']
+SCOPES = [
+    'https://www.googleapis.com/auth/gmail.modify',
+    'https://www.googleapis.com/auth/gmail.compose',
+    'https://www.googleapis.com/auth/gmail.send',
+    'https://www.googleapis.com/auth/gmail.readonly'
+]
 
 # Configuration paths
 CREDENTIALS_PATH = 'credentials.json'
@@ -29,11 +32,13 @@ TOKEN_PATH = 'token.json'
 SERVICE_ACCOUNT_PATH = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
 CREDENTIALS_CONFIG = os.getenv('GOOGLE_CREDENTIALS_CONFIG')
 
+
 @dataclass
 class GmailContext:
     """Context for Gmail service"""
     gmail_service: Any
     user_id: str = 'me'  # 'me' is a special value that refers to the authenticated user
+
 
 @asynccontextmanager
 async def gmail_lifespan(server: Any) -> AsyncIterator[GmailContext]:
@@ -91,19 +96,19 @@ async def gmail_lifespan(server: Any) -> AsyncIterator[GmailContext]:
     gmail_service = build('gmail', 'v1', credentials=creds)
     
     try:
-        # Provide the service in the context
         yield GmailContext(gmail_service=gmail_service)
     finally:
-        # No explicit cleanup needed for Google APIs
-        pass 
+        pass  # No explicit cleanup needed for Google APIs
 
 
-mcp = FastMCP("GMail", 
-              dependencies=["google-auth", "google-auth-oauthlib", "google-api-python-client"],
-              lifespan=gmail_lifespan)
+mcp = FastMCP(
+    "GMail",
+    dependencies=["google-auth", "google-auth-oauthlib", "google-api-python-client"],
+    lifespan=gmail_lifespan
+)
 
 
-def create_message(sender:str, to:str, subject:str, message_text:str)->Dict:
+def create_message(sender: str, to: str, subject: str, message_text: str) -> Dict:
     """Create message for an email"""
     message = MIMEMultipart()
     message['to'] = to
@@ -113,10 +118,49 @@ def create_message(sender:str, to:str, subject:str, message_text:str)->Dict:
     msg = MIMEText(message_text)
     message.attach(msg)
     raw_message = base64.urlsafe_b64decode(message.as_bytes()).decode('utf-8')
-    return {'raw':raw_message}
+    return {'raw': raw_message}
+
+
+def extract_messages(messages: List, gmail_service: Any, user_id: str) -> List:
+    """Extract message details from Gmail API response"""
+    messages_list = []
+    for message in messages:
+        msg = gmail_service.users().messages().get(
+            userId=user_id,
+            id=message['id'],
+            format='full'
+        ).execute()
+
+        headers = msg['payload']['headers']
+        subject = next((h['value'] for h in headers if h['name'].lower() == 'subject'), 'No Subject')
+        sender = next((h['value'] for h in headers if h['name'].lower() == 'from'), 'Unknown Sender')
+        date = next((h['value'] for h in headers if h['name'].lower() == 'date'), 'No Date')
+
+        body = ''
+        if 'payload' in msg:
+            payload = msg['payload']
+            if 'parts' in payload:
+                for part in payload['parts']:
+                    if part['mimeType'] == 'text/plain':
+                        body = base64.urlsafe_b64decode(part['body'].get('data', '')).decode('utf-8')
+                        break
+            elif 'body' in payload:
+                body = base64.urlsafe_b64decode(payload['body'].get('data', '')).decode('utf-8')
+        
+        messages_list.append({
+            'id': message['id'],
+            'subject': subject,
+            'sender': sender,
+            'date': date,
+            'body': body,
+            'snippet': msg.get('snippet', ''),
+            'labels': msg.get('labelIds', [])
+        })
+    return messages_list
+
 
 @mcp.tool()
-def list_message(query:str='' , max_results:int=10,ctx:Context=None) -> List[Dict]:
+def list_message(query: str = '', max_results: int = 10, ctx: Context = None) -> List[Dict]:
     """
     List messages from the user's mailbox matching the query.
     
@@ -127,93 +171,110 @@ def list_message(query:str='' , max_results:int=10,ctx:Context=None) -> List[Dic
     Returns:
         List of message objects with their details
     """
-    gmail_service = ctx.request_context.lifespan_context.gmail_serivce
-    user_id = ctx.request_context.lifespan_context.user_id
-
-    try:
-        response = gmail_service.users().messages().list(
-            userId = user_id,
-            q = query,
-            maxResults = max_results
-        ).execute()
-
-        messages = response.get('messages' , [])
-        message_list = []
-        for message in messages:
-            msg = gmail_service.users().messages().get(
-                userID = user_id,
-                id = message['id'],
-                format='full'
-            ).execute()
-
-            headers = msg['payload']['headers']
-            subject = next((h['value'] for h in headers if h['name'].lower() == 'subject'), 'No Subject')
-            sender = next((h['value'] for h in headers if h['name'].lower() == 'from'), 'Unknown Sender')
-            date = next((h['value'] for h in headers if h['name'].lower() == 'date'), 'No Date')
-
-            body = ''
-            if 'payload' in msg:
-                payload = msg['payload']
-                if 'parts' in payload:
-                    for part in payload['parts']:
-                        if part['mimeType'] == 'text/plain':
-                            body = base64.urlsafe_b64decode(part['body'].get('data','')).decode('utf-8')
-                            break
-                elif 'body' in payload:
-                    body = base64.urlsafe_b64decode(payload['body'].get('data','')).decode('utf-8')
-            message_list.append({
-                'id':message['id'],
-                'subject':subject,
-                'sender':sender,
-                'date':date,
-                'body':body,
-                'snippet':msg.get('snippt',''),
-                'labels':msg.get('labelsIds',[])
-            })
-        return message_list
-    except Exception as e:
-        print(f"An error occured while getting the list of emails: {e}")
-        return []
-    
-@mcp.tool()
-def send_message(to:str, subject:str, message_text: str, ctx: Context=None) -> Dict[str]:
-
     gmail_service = ctx.request_context.lifespan_context.gmail_service
     user_id = ctx.request_context.lifespan_context.user_id
 
     try:
-        message = create_message(user_id , to=to , subject=subject , message_text=message_text)
+        response = gmail_service.users().messages().list(
+            userId=user_id,
+            q=query,
+            maxResults=max_results
+        ).execute()
+
+        messages = response.get('messages', [])
+        return extract_messages(messages, gmail_service, user_id)
+    except Exception as e:
+        print(f"An error occurred while getting the list of emails: {e}")
+        return []
+
+
+@mcp.tool()
+def send_message(to: str, subject: str, message_text: str, ctx: Context = None) -> Dict[str, str]:
+    """Send an email message"""
+    gmail_service = ctx.request_context.lifespan_context.gmail_service
+    user_id = ctx.request_context.lifespan_context.user_id
+
+    try:
+        message = create_message(user_id, to=to, subject=subject, message_text=message_text)
         sent_message = gmail_service.users().messages().send(
-            userId = user_id,
+            userId=user_id,
             body=message
         ).execute()
         
         return {
-            'messageId':sent_message['id'],
-            'threadId':send_message['thredId'],
-            'stauts':"Email sent successfully"
+            'messageId': sent_message['id'],
+            'threadId': sent_message['threadId'],
+            'status': "Email sent successfully"
         }
     except Exception as e:
         return {
-            "message":"Error while sending the emails",
-            "error" : str(e)
+            "message": "Error while sending the email",
+            "error": str(e)
         }
 
-# mcp.tool()
-# def get_todays_messages(max_results:int=10 , ctx:Context=None) -> List[Dict]:
+
+@mcp.tool()
+def get_todays_messages(max_results: int = 10, ctx: Context = None) -> List[Dict]:
+    """Get messages received today"""
+    gmail_service = ctx.request_context.lifespan_context.gmail_service
+    user_id = ctx.request_context.lifespan_context.user_id
     
-#     gmail_service = ctx.request_context.lifespan_context.gmail_service
-#     user_id = ctx.request_context.lifespan_context.user_id
-#     try:
-#         today = datetime.now()
-#         start_of_day = today.replace(hour=0, minute=0, second=0, microsecond=0)
-#         date_str = start_of_day.strftime('%Y/%m/%d')
-#         query = f'after{date_str}'
-#         results = gmail_service.users().messages().list(
-#             userId = user_id,
-#             q = query,
-#             maxResults = max_results
-#         ).execite()
-#         mesasges = results.get('messages' , [])
-#         emails = []
-#         for message in mesasges:
+    try:
+        today = datetime.now()
+        start_of_day = today.replace(hour=0, minute=0, second=0, microsecond=0)
+        date_str = start_of_day.strftime('%Y/%m/%d')
+        query = f'after:{date_str}'
+        
+        results = gmail_service.users().messages().list(
+            userId=user_id,
+            q=query,
+            maxResults=max_results
+        ).execute()
+        
+        messages = results.get('messages', [])
+        return extract_messages(messages, gmail_service, user_id)
+    except Exception as e:
+        print(f"An error occurred while getting today's messages: {e}")
+        return []
+
+
+@mcp.tool()
+def reply_to_message(message_id:str, reply_text:str, ctx:Context=None) -> Dict[str, Any]:
+
+    gmail_service = ctx.request_context.lifespan_context.gamil_service
+    user_id = ctx.request_context.lifespan_context.user_id
+
+    try:
+        original_message = gmail_service.users().messages().get(
+            userId = user_id,
+            id = message_id,
+            format='full'
+        ).execute()
+
+        headers = original_message['payload']['headers']
+        subject = next((h['value'] for h in headers if h['name'].lower() == 'subject'), '')
+        from_email = next((h['value'] for h in headers if h['name'].lower() == 'from'), '')
+        
+        reply_subject = f"Re:{subject}" if not subject.startswith('Re:') else subject
+
+        reply_message = create_message(user_id , from_email , reply_subject , reply_text)
+
+        sent_message = gmail_service.users().messages().send(
+            userId = user_id,
+            body = reply_message
+        ).execute()
+
+        return {
+            'messageId':sent_message['id'],
+            'threadId':sent_message['threadId'],
+            'status' : 'Reply sent',
+            'inReplyTo':message_id
+        }
+    except Exception as e:
+        return {
+            'message':"Error while sending the reply",
+            "error":str(e)
+        }
+
+def main():
+    mcp.run()        
