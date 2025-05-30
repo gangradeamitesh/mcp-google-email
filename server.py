@@ -393,5 +393,5 @@ def main():
     """Run the FastMCP server with stdio transport."""
     mcp.run(transport='stdio')
 
-if __name__=="__main__":
-    main()        
+if __name__ == "__main__":
+    main()
