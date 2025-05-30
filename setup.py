@@ -1,8 +1,8 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="mcp-gmail",
-    version="0.1.0",
+    name="mcp-google-email",
+    version="0.1.1",
     packages=find_packages(),
     install_requires=[
         "google-auth",
@@ -10,9 +10,9 @@ setup(
         "google-api-python-client",
         "mcp-server",
     ],
-    author="Your Name",
-    author_email="your.email@example.com",
-    description="A Gmail service implementation using MCP",
+    author="Amitesh Gangrade",
+    author_email="gangradeamitesh@gmail.com",
+    description="MCP for GMail",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/yourusername/mcp-gmail",
@@ -21,5 +21,5 @@ setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.7",
+    python_requires=">=3.10",
 ) 
