@@ -35,14 +35,35 @@ CREDENTIALS_CONFIG = os.getenv('GOOGLE_CREDENTIALS_CONFIG')
 
 @dataclass
 class GmailContext:
-    """Context for Gmail service"""
+    """Context for Gmail service.
+    
+    Attributes:
+        gmail_service: The authenticated Gmail API service instance
+        user_id: The user ID for Gmail operations, defaults to 'me' for authenticated user
+    """
     gmail_service: Any
     user_id: str = 'me'  # 'me' is a special value that refers to the authenticated user
 
 
 @asynccontextmanager
 async def gmail_lifespan(server: Any) -> AsyncIterator[GmailContext]:
-    """Manage Gmail API connection lifecycle"""
+    """Manage Gmail API connection lifecycle.
+    
+    This function handles the authentication and setup of the Gmail service using various
+    authentication methods in the following order:
+    1. Service Account (from environment variables)
+    2. OAuth 2.0 (from credentials.json)
+    3. Application Default Credentials (ADC)
+    
+    Args:
+        server: The FastMCP server instance
+        
+    Yields:
+        GmailContext: A context object containing the authenticated Gmail service
+        
+    Raises:
+        Exception: If all authentication methods fail
+    """
     creds = None
 
     if CREDENTIALS_CONFIG:
@@ -109,7 +130,17 @@ mcp = FastMCP(
 
 
 def create_message(sender: str, to: str, subject: str, message_text: str) -> Dict:
-    """Create message for an email"""
+    """Create a MIME message for email sending.
+    
+    Args:
+        sender: The email address of the sender
+        to: The email address of the recipient
+        subject: The subject line of the email
+        message_text: The body text of the email
+        
+    Returns:
+        Dict: A dictionary containing the raw message in base64url encoded format
+    """
     message = MIMEMultipart()
     message['to'] = to
     message['from'] = sender
@@ -117,12 +148,28 @@ def create_message(sender: str, to: str, subject: str, message_text: str) -> Dic
 
     msg = MIMEText(message_text)
     message.attach(msg)
-    raw_message = base64.urlsafe_b64decode(message.as_bytes()).decode('utf-8')
+    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
     return {'raw': raw_message}
 
 
 def extract_messages(messages: List, gmail_service: Any, user_id: str) -> List:
-    """Extract message details from Gmail API response"""
+    """Extract and format message details from Gmail API response.
+    
+    Args:
+        messages: List of message objects from Gmail API
+        gmail_service: Authenticated Gmail service instance
+        user_id: The user ID for Gmail operations
+        
+    Returns:
+        List: A list of dictionaries containing formatted message details including:
+            - id: Message ID
+            - subject: Email subject
+            - sender: Sender's email address
+            - date: Message date
+            - body: Message body content
+            - snippet: Message snippet
+            - labels: List of message labels
+    """
     messages_list = []
     for message in messages:
         msg = gmail_service.users().messages().get(
@@ -161,15 +208,26 @@ def extract_messages(messages: List, gmail_service: Any, user_id: str) -> List:
 
 @mcp.tool()
 def list_message(query: str = '', max_results: int = 10, ctx: Context = None) -> List[Dict]:
-    """
-    List messages from the user's mailbox matching the query.
+    """List messages from the user's mailbox matching the query.
     
     Args:
         query: Gmail search query (e.g., 'is:unread', 'from:example@gmail.com')
         max_results: Maximum number of messages to return
-    
+        ctx: FastMCP context object containing Gmail service
+        
     Returns:
-        List of message objects with their details
+        List[Dict]: List of message objects with their details including:
+            - id: Message ID
+            - subject: Email subject
+            - sender: Sender's email address
+            - date: Message date
+            - body: Message body content
+            - snippet: Message snippet
+            - labels: List of message labels
+            
+    Example:
+        >>> list_message(query='is:unread', max_results=5)
+        [{'id': '...', 'subject': 'Test', 'sender': '...', ...}]
     """
     gmail_service = ctx.request_context.lifespan_context.gmail_service
     user_id = ctx.request_context.lifespan_context.user_id
@@ -190,7 +248,26 @@ def list_message(query: str = '', max_results: int = 10, ctx: Context = None) ->
 
 @mcp.tool()
 def send_message(to: str, subject: str, message_text: str, ctx: Context = None) -> Dict[str, str]:
-    """Send an email message"""
+    """Send an email message.
+    
+    Args:
+        to: Recipient's email address
+        subject: Email subject line
+        message_text: Body text of the email
+        ctx: FastMCP context object containing Gmail service
+        
+    Returns:
+        Dict[str, str]: Dictionary containing:
+            - messageId: ID of the sent message
+            - threadId: ID of the message thread
+            - status: Status message
+            
+    Example:
+        >>> send_message(to='user@example.com', 
+        ...             subject='Test', 
+        ...             message_text='Hello')
+        {'messageId': '...', 'threadId': '...', 'status': 'Email sent successfully'}
+    """
     gmail_service = ctx.request_context.lifespan_context.gmail_service
     user_id = ctx.request_context.lifespan_context.user_id
 
@@ -215,7 +292,26 @@ def send_message(to: str, subject: str, message_text: str, ctx: Context = None) 
 
 @mcp.tool()
 def get_todays_messages(max_results: int = 10, ctx: Context = None) -> List[Dict]:
-    """Get messages received today"""
+    """Get messages received today.
+    
+    Args:
+        max_results: Maximum number of messages to return
+        ctx: FastMCP context object containing Gmail service
+        
+    Returns:
+        List[Dict]: List of today's messages with their details including:
+            - id: Message ID
+            - subject: Email subject
+            - sender: Sender's email address
+            - date: Message date
+            - body: Message body content
+            - snippet: Message snippet
+            - labels: List of message labels
+            
+    Example:
+        >>> get_todays_messages(max_results=5)
+        [{'id': '...', 'subject': 'Today\'s Email', ...}]
+    """
     gmail_service = ctx.request_context.lifespan_context.gmail_service
     user_id = ctx.request_context.lifespan_context.user_id
     
@@ -239,8 +335,25 @@ def get_todays_messages(max_results: int = 10, ctx: Context = None) -> List[Dict
 
 
 @mcp.tool()
-def reply_to_message(message_id:str, reply_text:str, ctx:Context=None) -> Dict[str, Any]:
-
+def reply_to_message(message_id: str, reply_text: str, ctx: Context = None) -> Dict[str, Any]:
+    """Reply to an existing email message.
+    
+    Args:
+        message_id: ID of the message to reply to
+        reply_text: Text content of the reply
+        ctx: FastMCP context object containing Gmail service
+        
+    Returns:
+        Dict[str, Any]: Dictionary containing:
+            - messageId: ID of the reply message
+            - threadId: ID of the message thread
+            - status: Status message
+            - inReplyTo: ID of the original message
+            
+    Example:
+        >>> reply_to_message(message_id='123', reply_text='Thank you')
+        {'messageId': '...', 'threadId': '...', 'status': 'Reply sent', 'inReplyTo': '123'}
+    """
     gmail_service = ctx.request_context.lifespan_context.gamil_service
     user_id = ctx.request_context.lifespan_context.user_id
 
@@ -277,4 +390,8 @@ def reply_to_message(message_id:str, reply_text:str, ctx:Context=None) -> Dict[s
         }
 
 def main():
-    mcp.run()        
+    """Run the FastMCP server with stdio transport."""
+    mcp.run(transport='stdio')
+
+if __name__=="__main__":
+    main()        

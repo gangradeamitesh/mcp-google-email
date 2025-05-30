@@ -1,0 +1,16 @@
+[project]
+name = "mcp-google-email"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.68.0",
+    "google-api-python-client>=2.0.0",
+    "google-auth-httplib2>=0.1.0",
+    "google-auth-oauthlib>=0.4.6",
+    "mcp>=1.0.0",
+    "pydantic>=1.8.0",
+    "python-dotenv>=0.19.0",
+    "uvicorn>=0.15.0",
+]
