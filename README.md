@@ -10,11 +10,9 @@ The MCP Google Email Service was developed to address several key needs in moder
 
 2. **Simplified Authentication**: Handles the complexity of Gmail API authentication through multiple methods (Service Account, OAuth 2.0, and Application Default Credentials), making it easier to integrate Gmail functionality into applications.
 
-3. **FastAPI Integration**: Built on FastAPI, offering modern, async-first web framework capabilities with automatic API documentation and high performance.
+3. **Environment-Based Configuration**: Supports flexible configuration through environment variables, making it suitable for various deployment scenarios (development, staging, production).
 
-4. **Environment-Based Configuration**: Supports flexible configuration through environment variables, making it suitable for various deployment scenarios (development, staging, production).
-
-5. **Model Context Protocol (MCP) Integration**: Implements the Model Context Protocol, ensuring consistent behavior and integration with other MCP-compliant services. MCP provides a standardized way to handle context and state management across different services.
+4. **Model Context Protocol (MCP) Integration**: Implements the Model Context Protocol, ensuring consistent behavior and integration with other MCP-compliant services. MCP provides a standardized way to handle context and state management across different services.
 
 This service is particularly useful for:
 - Applications requiring automated email handling
@@ -31,7 +29,6 @@ This service is particularly useful for:
 - Reply to existing messages
 - Today's message retrieval
 - Multiple authentication methods support
-- FastAPI-based implementation
 - Environment-based configuration
 
 ## Installation
@@ -81,19 +78,16 @@ The following environment variables can be used to configure the service:
 
 - `GOOGLE_APPLICATION_CREDENTIALS`: Path to your service account credentials JSON file
 - `GOOGLE_CREDENTIALS_CONFIG`: JSON string containing service account credentials
-- `PORT`: Port number for the FastAPI server (default: 8000)
 
 ## Requirements
 
 - Python 3.11+
-- fastapi>=0.68.0
 - google-api-python-client>=2.0.0
 - google-auth-httplib2>=0.1.0
 - google-auth-oauthlib>=0.4.6
 - mcp>=1.0.0
 - pydantic>=1.8.0
 - python-dotenv>=0.19.0
-- uvicorn>=0.15.0
 
 ## Development
 
